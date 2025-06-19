@@ -72,7 +72,7 @@ The RAG-LangChain Chatbot enables users to upload documents, process them into a
 ### 1. Clone the Repository
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/JustAthar19/RAG-LangChain-Chatbot.git
 cd rag-langchain-chatbot
 ```
 
