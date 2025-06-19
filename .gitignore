@@ -1,4 +1,4 @@
 .env
 chatbot-venv/
 test.py
-.DS_store
+.DS_Store
