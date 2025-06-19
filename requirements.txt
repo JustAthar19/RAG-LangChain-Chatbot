@@ -1,5 +1,5 @@
+
 chromadb==0.5.23
-fastapi==0.115.13
 huggingface-hub==0.33.0
 langchain==0.2.16
 langchain-chroma==0.1.2
@@ -10,6 +10,8 @@ langchain-text-splitters==0.2.4
 langsmith==0.1.147
 pypdf==5.6.0
 PyPika==0.48.9
-python-dotenv==1.0.1
+python-dotenv==1.1.0
+sentence-transformers==4.1.0
 streamlit==1.38.0
+torch==2.4.0
 transformers==4.46.3
