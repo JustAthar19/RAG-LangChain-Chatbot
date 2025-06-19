@@ -1,5 +1,4 @@
 .env
 chatbot-venv/
 test.py
-app.log
-data/
+.DS_store
