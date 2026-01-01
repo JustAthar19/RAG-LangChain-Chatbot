@@ -5,11 +5,16 @@ import tempfile
 from langchain_community.document_loaders import DirectoryLoader, PyPDFLoader, TextLoader
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings, HuggingFaceEndpoint
 from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings, HuggingFaceEndpoint
+from langchain.schema import HumanMessage
 from langchain.prompts import ChatPromptTemplate
 from langchain_huggingface import ChatHuggingFace
 from dotenv import load_dotenv
+
+os.getenv("")
+
+
 import logging #
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -53,7 +58,7 @@ def split_text(documents):
     try:
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
-            chunk_overlap=100,
+            chunk_overlap=50,
             length_function=len,
             add_start_index=True,
         )
@@ -63,30 +68,71 @@ def split_text(documents):
         return None, f"Error splitting documents: {str(e)}"
 
 
-# Incramental Database Updates
-# key error : id
-# def save_to_chroma(chunks):
-#     db = Chroma(persist_directory=CHROMA_PATH, embedding_function=HuggingFaceEmbeddings(model_name='all-MiniLM-L6-v2'))
-#     existing_ids = db.get()['ids'] if os.path.exists(CHROMA_PATH) else []
-#     new_chunks = [chunk for chunk in chunks if chunk.metadata['id'] not in existing_ids]
-#     if new_chunks:
-#         db.add_documents(new_chunks)
-#     return db, None
+def get_embedding_function():
+    return HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        model_kwargs={"device":"cpu"}
+    )
 
-# rebuild database form scratch
-def save_to_chroma(chunks):
+def clear_database():
+    if os.path.exists(CHROMA_PATH):
+        shutil.rmtree(CHROMA_PATH)
+
+
+# function to create the databaa
+def save_to_chroma(new_chunks):
     logger.info("Saving Chunks to Chroma Dataset")
     try:
-        if os.path.exists(CHROMA_PATH):
-            shutil.rmtree(CHROMA_PATH)
-        db = Chroma.from_documents(
-            chunks,
-            HuggingFaceEmbeddings(model_name='all-MiniLM-L6-v2'),
-            persist_directory=CHROMA_PATH
+        db = Chroma(
+            persist_directory=CHROMA_PATH, 
+            embedding_function=get_embedding_function()
         )
+        # Calculate Page IDs.
+        chunks_with_ids = calculate_chunks_id(new_chunks)
+
+        # Add or Update the documents.
+        existing_items = db.get(include=[])  # IDs are always included by default
+        existing_ids = set(existing_items["ids"])
+        print(f"Number of existing documents in DB: {len(existing_ids)}")
+
+        # Only add documents that don't exist in the DB.
+        new_chunks = []
+        for chunk in chunks_with_ids:
+            if chunk.metadata["id"] not in existing_ids:
+                new_chunks.append(chunk)
+
+        if len(new_chunks):
+            print(f"👉 Adding new documents: {len(new_chunks)}")
+            new_chunk_ids = [chunk.metadata["id"] for chunk in new_chunks]
+            db.add_documents(new_chunks, ids=new_chunk_ids)
+        else:
+            print("✅ No new documents to add")
         return db, None
     except Exception as e:
         return None, f"Error saving to Chroma: {str(e)}"
+
+
+def calculate_chunks_id(chunks):
+    last_page_id = None
+    current_chunk_index = 0
+    for chunk in chunks:
+        
+        source = chunk.metadata.get("source")
+        page = chunk.metadata.get("page")
+        current_page_id = f"{source}/{page}"
+        
+        if current_page_id == last_page_id:
+            current_chunk_index += 1
+        else:
+            current_chunk_index = 0
+
+        chunk_id = f"{current_page_id}/{current_chunk_index}"
+        last_page_id = current_page_id
+
+        chunk.metadata['id'] = chunk_id
+    
+    return chunks
+
 
 
 def process_documents(uploaded_files):
@@ -118,7 +164,8 @@ def process_documents(uploaded_files):
             return f"Successfully processed {len(chunks)} document chunks."
 
 
-llm = HuggingFaceEndpoint(repo_id="microsoft/Phi-3-mini-4k-instruct", temperature=0.7, max_new_tokens=512)
+
+llm = HuggingFaceEndpoint(repo_id="mistralai/Mistral-7B-Instruct-v0.2", temperature=0.7, max_new_tokens=512)
 chat_model = ChatHuggingFace(llm=llm)
 
 def query_database(question):
@@ -127,13 +174,12 @@ def query_database(question):
     
     with st.spinner("Generating response..."):
         try:
-            results = st.session_state.db.similarity_search_with_relevance_scores(question, k=3)
+            results = st.session_state.db.similarity_search_with_score(question, k=5)
             context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
             prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
             prompt = prompt_template.format(context=context_text, question=question)
             response = chat_model.invoke(prompt)
             sources = [doc.metadata.get("source", None) for doc, _score in results]
-            
             return response.content, sources
         except Exception as e:
             return f"Error generating response: {str(e)}", None
@@ -162,24 +208,17 @@ with st.sidebar:
                     st.error(result)
                 else:
                     st.success(result)
-                    st.balloons()
             else:
                 st.warning("Please upload at least one file.")
     
-    with st.expander("ℹ️ About"):
-        st.markdown("""
-        This chatbot uses RAG (Retrieval-Augmented Generation) to answer questions based on your uploaded documents.
-        - Supports .md, .pdf, and .txt files
-        - Uses HuggingFace models for embeddings and chat
-        - Stores document chunks in Chroma DB
-        """)
+    
 
 
 # Main content
 chat_container = st.container()
 
 # Input for user question
-with st.form(key="query_form", clear_on_submit=True):
+with st.form(key="query_form"):
     question = st.text_input("Ask anything about your document")
     submit_button = st.form_submit_button("Submit")
 
