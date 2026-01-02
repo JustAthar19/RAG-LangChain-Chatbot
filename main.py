@@ -3,22 +3,20 @@ import os
 import shutil
 import tempfile
 from langchain_community.document_loaders import DirectoryLoader, PyPDFLoader, TextLoader
-from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings, HuggingFaceEndpoint
-from langchain.schema import HumanMessage
 from langchain.prompts import ChatPromptTemplate
 from langchain_huggingface import ChatHuggingFace
 from dotenv import load_dotenv
 
-os.getenv("")
-
+load_dotenv()
 
 import logging #
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-load_dotenv()
+
+
 CHROMA_PATH = "chroma"
 PROMPT_TEMPLATE = """
 Answer the question based only on the following context:
@@ -65,13 +63,15 @@ def split_text(documents):
         chunks = text_splitter.split_documents(documents)
         return chunks, None
     except Exception as e:
+        logger.error("Error in splitting documents", exc_info=True)
         return None, f"Error splitting documents: {str(e)}"
 
 
 def get_embedding_function():
     return HuggingFaceEmbeddings(
         model_name="sentence-transformers/all-MiniLM-L6-v2",
-        model_kwargs={"device":"cpu"}
+        model_kwargs={"device":"cpu"},
+        encode_kwargs={"normalize_embeddings": True}
     )
 
 def clear_database():
@@ -109,6 +109,7 @@ def save_to_chroma(new_chunks):
             print("✅ No new documents to add")
         return db, None
     except Exception as e:
+        logger.error("Error saving to Chroma", exc_info=True)
         return None, f"Error saving to Chroma: {str(e)}"
 
 
@@ -179,7 +180,9 @@ def query_database(question):
             prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
             prompt = prompt_template.format(context=context_text, question=question)
             response = chat_model.invoke(prompt)
-            sources = [doc.metadata.get("source", None) for doc, _score in results]
+            sources = [doc.metadata.get("id", None) for doc, _score in results]
+            print(f"Question: {question}")
+            print(f"Sources: {sources}")
             return response.content, sources
         except Exception as e:
             return f"Error generating response: {str(e)}", None
